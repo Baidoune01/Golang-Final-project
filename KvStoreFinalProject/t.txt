@@ -1,0 +1,67 @@
+curl -X POST -H "Content-Type: application/json" -d "{\"foo\":\"bar\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"foo1\":\"bar1\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"abdo\":\"bnd\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"abderr\":\"baid\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"abderrahmane\":\"baidoune\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"go\":\"lang\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"test\":\"again\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"foo\":\"bar\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"python\":\"deaif\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"c++\":\"oop\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"do\":\"not\"}" http://localhost:8080/set
+
+
+
+
+
+
+
+
+
+
+
+
+curl -X POST -H "Content-Type: application/json" -d "{\"foo_new\":\"bar\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"foo1_new\":\"bar1\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"abdo_new\":\"bnd\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"abderr_new\":\"baid\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"abderrahmane_new\":\"baidoune\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"go_new\":\"lang\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"test_new\":\"again\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"foo_new\":\"bar\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"python_new\":\"deaif\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"c++_new\":\"oop\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"do_new\":\"not\"}" http://localhost:8080/set
+
+
+
+
+
+
+
+
+curl -X POST -H "Content-Type: application/json" -d "{\"foo_new_new1\":\"bar\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"foo1_new_new1\":\"bar1\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"abdo_new_new1\":\"bnd\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"abderr_new_new1\":\"baid\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"abderrahmane_new_new1\":\"baidoune\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"go_new_new1\":\"lang\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"test_new_new1\":\"again\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"foo_new_new1\":\"bar\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"python_new_new1\":\"deaif\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"c++_new_new1\":\"oop\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"do_new_new1\":\"not\"}" http://localhost:8080/set
+
+
+
+
+
+
+get:
+
+curl -X GET http://localhost:8080/get?key=abdo
+
+del:
+
+curl -X DELETE http://localhost:8080/del?key=python
+
