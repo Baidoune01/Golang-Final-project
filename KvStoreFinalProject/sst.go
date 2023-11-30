@@ -44,6 +44,22 @@ func (s *SSTManager) FlushMemTableToSST(memTable *MemTable) error {
 		}
 	}
 
+	return s.checkAndTriggerCompaction()
+}
+
+func (s *SSTManager) checkAndTriggerCompaction() error {
+	files, err := os.ReadDir(s.sstDir)
+	if err != nil {
+		return fmt.Errorf("error reading SST directory: %v", err)
+	}
+
+	if len(files) >= 4 {
+		compactionManager := NewCompactionManager(s.sstDir)
+		if err := compactionManager.Compact(); err != nil {
+			return fmt.Errorf("compaction error: %v", err)
+		}
+	}
+
 	return nil
 }
 
@@ -90,7 +106,6 @@ func (s *SSTManager) GetFromSST(key string) (string, bool) {
 		return "", false
 	}
 
-	// Iterate through files in reverse order since the newest entries are more relevant
 	for i := len(files) - 1; i >= 0; i-- {
 		fileInfo := files[i]
 		if fileInfo.IsDir() {
@@ -102,10 +117,13 @@ func (s *SSTManager) GetFromSST(key string) (string, bool) {
 			continue
 		}
 
-		found, value := processFile(file, key)
+		found, value, deleted := processFile(file, key)
 		file.Close()
 
 		if found {
+			if deleted {
+				return "", false // Key was marked as deleted
+			}
 			return value, true
 		}
 	}
@@ -113,91 +131,22 @@ func (s *SSTManager) GetFromSST(key string) (string, bool) {
 	return "", false
 }
 
-// func processFile(file *os.File, key string) (bool, string) {
-// 	for {
-// 		// Read operation marker
-// 		opMarker := make([]byte, 1)
-// 		if _, err := file.Read(opMarker); err != nil {
-// 			if err == io.EOF {
-// 				break
-// 			}
-// 			return false, ""
-// 		}
-
-// 		// Read key length and key
-// 		var keyLength uint32
-// 		if err := binary.Read(file, binary.LittleEndian, &keyLength); err != nil {
-// 			if err == io.EOF {
-// 				break
-// 			}
-// 			return false, ""
-// 		}
-
-// 		keyBuf := make([]byte, keyLength)
-// 		if _, err := file.Read(keyBuf); err != nil {
-// 			if err == io.EOF {
-// 				break
-// 			}
-// 			return false, ""
-// 		}
-// 		currentKey := string(keyBuf)
-
-// 		if currentKey != key {
-// 			// Skip the value if it's a SET operation and the key doesn't match
-// 			if opMarker[0] == 's' {
-// 				var valueLength uint32
-// 				if err := binary.Read(file, binary.LittleEndian, &valueLength); err != nil {
-// 					if err == io.EOF {
-// 						break
-// 					}
-// 					return false, ""
-// 				}
-// 				if _, err := file.Seek(int64(valueLength), io.SeekCurrent); err != nil {
-// 					return false, ""
-// 				}
-// 			}
-// 			continue
-// 		}
-
-// 		// If the key matches and operation is DELETE, return key not found
-// 		if opMarker[0] == 'd' {
-// 			return false, ""
-// 		}
-
-// 		// Read and return the value for SET operation
-// 		var valueLength uint32
-// 		if err := binary.Read(file, binary.LittleEndian, &valueLength); err != nil {
-// 			return false, ""
-// 		}
-
-// 		valueBuf := make([]byte, valueLength)
-// 		if _, err := file.Read(valueBuf); err != nil {
-// 			return false, ""
-// 		}
-
-// 		return true, string(valueBuf)
-// 	}
-// 	return false, ""
-// }
-
-func processFile(file *os.File, key string) (bool, string) {
+func processFile(file *os.File, key string) (bool, string, bool) {
 	for {
-		// Read operation marker
 		opMarker := make([]byte, 1)
 		if _, err := file.Read(opMarker); err != nil {
 			if err == io.EOF {
 				break
 			}
-			return false, ""
+			return false, "", false
 		}
 
-		// Read key length and key
 		var keyLength uint32
 		if err := binary.Read(file, binary.LittleEndian, &keyLength); err != nil {
 			if err == io.EOF {
 				break
 			}
-			return false, ""
+			return false, "", false
 		}
 
 		keyBuf := make([]byte, keyLength)
@@ -205,44 +154,38 @@ func processFile(file *os.File, key string) (bool, string) {
 			if err == io.EOF {
 				break
 			}
-			return false, ""
+			return false, "", false
 		}
 		currentKey := string(keyBuf)
 
-		if currentKey != key {
-			// Skip the value if it's a SET operation and the key doesn't match
-			if opMarker[0] == 's' {
-				var valueLength uint32
-				if err := binary.Read(file, binary.LittleEndian, &valueLength); err != nil {
-					if err == io.EOF {
-						break
-					}
-					return false, ""
-				}
-				if _, err := file.Seek(int64(valueLength), io.SeekCurrent); err != nil {
-					return false, ""
-				}
+		if currentKey == key {
+			if opMarker[0] == 'd' {
+				return true, "", true // Key was marked as deleted
 			}
-			continue
+
+			var valueLength uint32
+			if err := binary.Read(file, binary.LittleEndian, &valueLength); err != nil {
+				return false, "", false
+			}
+
+			valueBuf := make([]byte, valueLength)
+			if _, err := file.Read(valueBuf); err != nil {
+				return false, "", false
+			}
+
+			return true, string(valueBuf), false
 		}
 
-		// If the key matches and operation is DELETE, return key not found
-		if opMarker[0] == 'd' {
-			return false, ""
+		// If it's a SET operation, skip the value part
+		if opMarker[0] == 's' {
+			var valueLength uint32
+			if err := binary.Read(file, binary.LittleEndian, &valueLength); err != nil {
+				return false, "", false
+			}
+			if _, err := file.Seek(int64(valueLength), io.SeekCurrent); err != nil {
+				return false, "", false
+			}
 		}
-
-		// Read and return the value for SET operation
-		var valueLength uint32
-		if err := binary.Read(file, binary.LittleEndian, &valueLength); err != nil {
-			return false, ""
-		}
-
-		valueBuf := make([]byte, valueLength)
-		if _, err := file.Read(valueBuf); err != nil {
-			return false, ""
-		}
-
-		return true, string(valueBuf)
 	}
-	return false, ""
+	return false, "", false
 }

@@ -2,61 +2,61 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sort"
+	"time"
 )
 
-// CompactionManager is responsible for the compaction of SST files.
 type CompactionManager struct {
-	sstDir string // Directory where SST files are stored
+	sstDir string
 }
 
-// NewCompactionManager creates a new instance of a CompactionManager for a given SST directory.
 func NewCompactionManager(sstDir string) *CompactionManager {
-	return &CompactionManager{
-		sstDir: sstDir,
-	}
+	return &CompactionManager{sstDir: sstDir}
 }
 
-// Compact merges several SST files into one, removing outdated or deleted entries.
 func (c *CompactionManager) Compact() error {
-	// Get a list of all SST files
 	files, err := filepath.Glob(filepath.Join(c.sstDir, "*.sst"))
 	if err != nil {
 		return err
 	}
 
-	sort.Strings(files) // Sort files to process them in order
+	sort.Strings(files)
 
-	// Open a new SST file for the compacted data
-	compactedFileName := filepath.Join(c.sstDir, "compacted.sst")
+	compactedFileName := filepath.Join(c.sstDir, fmt.Sprintf("compacted_%d.sst", time.Now().UnixNano()))
 	compactedFile, err := os.Create(compactedFileName)
 	if err != nil {
 		return err
 	}
 	defer compactedFile.Close()
 
-	// Process each SST file
+	keyOperations := make(map[string]MemTableEntry)
+
 	for _, file := range files {
-		if err := c.processSSTFile(file, compactedFile); err != nil {
+		if err := c.processSSTFile(file, keyOperations); err != nil {
 			return err
 		}
 	}
 
-	// Optionally, remove the old SST files after successful compaction
+	for key, entry := range keyOperations {
+		if err := c.writeCompactedEntry(compactedFile, key, entry); err != nil {
+			return err
+		}
+	}
+
 	for _, file := range files {
-		if err := os.Remove(file); err != nil {
-			// Log the error but continue with the process
+		if file != compactedFileName {
+			os.Remove(file)
 		}
 	}
 
 	return nil
 }
 
-// processSSTFile reads an SST file and writes its content to the compacted SST file.
-func (c *CompactionManager) processSSTFile(filePath string, compactedFile *os.File) error {
+func (c *CompactionManager) processSSTFile(filePath string, keyOperations map[string]MemTableEntry) error {
 	file, err := os.Open(filePath)
 	if err != nil {
 		return err
@@ -64,7 +64,6 @@ func (c *CompactionManager) processSSTFile(filePath string, compactedFile *os.Fi
 	defer file.Close()
 
 	for {
-		// Read operation marker, key, and value
 		opMarker := make([]byte, 1)
 		if _, err := file.Read(opMarker); err != nil {
 			if err == io.EOF {
@@ -73,17 +72,17 @@ func (c *CompactionManager) processSSTFile(filePath string, compactedFile *os.Fi
 			return err
 		}
 
-		// Read key
 		var keyLength uint32
 		if err := binary.Read(file, binary.LittleEndian, &keyLength); err != nil {
 			return err
 		}
+
 		keyBuf := make([]byte, keyLength)
 		if _, err := file.Read(keyBuf); err != nil {
 			return err
 		}
+		currentKey := string(keyBuf)
 
-		// Read value if it's a SET operation
 		if opMarker[0] == 's' {
 			var valueLength uint32
 			if err := binary.Read(file, binary.LittleEndian, &valueLength); err != nil {
@@ -93,23 +92,42 @@ func (c *CompactionManager) processSSTFile(filePath string, compactedFile *os.Fi
 			if _, err := file.Read(valueBuf); err != nil {
 				return err
 			}
+			keyOperations[currentKey] = MemTableEntry{Value: string(valueBuf), Op: OpSet}
+		} else {
+			keyOperations[currentKey] = MemTableEntry{Op: OpDelete}
+		}
+	}
 
-			// Write the key-value pair to the compacted file
-			if _, err := compactedFile.Write(opMarker); err != nil {
-				return err
-			}
-			if err := binary.Write(compactedFile, binary.LittleEndian, keyLength); err != nil {
-				return err
-			}
-			if _, err := compactedFile.Write(keyBuf); err != nil {
-				return err
-			}
-			if err := binary.Write(compactedFile, binary.LittleEndian, valueLength); err != nil {
-				return err
-			}
-			if _, err := compactedFile.Write(valueBuf); err != nil {
-				return err
-			}
+	return nil
+}
+
+func (c *CompactionManager) writeCompactedEntry(file *os.File, key string, entry MemTableEntry) error {
+	var opMarker byte
+	if entry.Op == OpSet {
+		opMarker = 's'
+	} else {
+		opMarker = 'd'
+	}
+
+	if _, err := file.Write([]byte{opMarker}); err != nil {
+		return err
+	}
+
+	keyLen := uint32(len(key))
+	if err := binary.Write(file, binary.LittleEndian, keyLen); err != nil {
+		return err
+	}
+	if _, err := file.Write([]byte(key)); err != nil {
+		return err
+	}
+
+	if entry.Op == OpSet {
+		valueLen := uint32(len(entry.Value))
+		if err := binary.Write(file, binary.LittleEndian, valueLen); err != nil {
+			return err
+		}
+		if _, err := file.Write([]byte(entry.Value)); err != nil {
+			return err
 		}
 	}
 
