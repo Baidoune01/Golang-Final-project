@@ -1,82 +1,122 @@
 package main
 
 import (
-	"encoding/gob"
-	"os"
-	"sync"
+	"encoding/json"
+	"fmt"
+	"io/ioutil"
+	"net/http"
 )
 
-// DiskStorage is an implementation of Storage interface that persists data to disk.
-type DiskStorage struct {
-	sync.RWMutex
-	filePath string
-	data     map[string]string
-}
-
-// NewDiskStorage creates a new DiskStorage instance and initializes it with data from the disk if it exists.
-func NewDiskStorage(filePath string) (*DiskStorage, error) {
-	ds := &DiskStorage{
-		filePath: filePath,
-		data:     make(map[string]string),
+func handleGet(w http.ResponseWriter, r *http.Request) {
+	key := r.URL.Query().Get("key")
+	if key == "" {
+		http.Error(w, "Key is required", http.StatusBadRequest)
+		return
 	}
 
-	// Try to load existing data from disk
-	if err := ds.load(); err != nil {
-		return nil, err
-	}
+	memTable.RLock()
+	value, op, found := memTable.Get(key)
+	memTable.RUnlock()
 
-	return ds, nil
-}
-
-// Read retrieves the value for a key from the storage.
-func (ds *DiskStorage) Read(key string) (string, bool) {
-	ds.RLock()
-	defer ds.RUnlock()
-	value, ok := ds.data[key]
-	return value, ok
-}
-
-// Write sets the value for a key in the storage.
-func (ds *DiskStorage) Write(key string, value string) error {
-	ds.Lock()
-	defer ds.Unlock()
-
-	ds.data[key] = value
-	return ds.save()
-}
-
-// Delete removes a key from the storage.
-func (ds *DiskStorage) Delete(key string) error {
-	ds.Lock()
-	defer ds.Unlock()
-
-	delete(ds.data, key)
-	return ds.save()
-}
-
-// save persists the current state of the storage to disk.
-func (ds *DiskStorage) save() error {
-	file, err := os.Create(ds.filePath)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	encoder := gob.NewEncoder(file)
-	return encoder.Encode(ds.data)
-}
-
-// load reads data from disk and loads it into the storage.
-func (ds *DiskStorage) load() error {
-	file, err := os.Open(ds.filePath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil // It's okay if the file doesn't exist yet
+	if !found {
+		value, found = sstManager.GetFromSST(key)
+		if !found {
+			http.Error(w, "Key not found", http.StatusNotFound)
+			return
 		}
-		return err
 	}
-	defer file.Close()
 
-	decoder := gob.NewDecoder(file)
-	return decoder.Decode(&ds.data)
+	if op == OpDelete {
+		http.Error(w, "Key was deleted", http.StatusNotFound)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(value))
+}
+
+func handleSet(w http.ResponseWriter, r *http.Request) {
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Error reading request body", http.StatusInternalServerError)
+		return
+	}
+
+	var data map[string]string
+	if err := json.Unmarshal(body, &data); err != nil {
+		http.Error(w, "Error parsing JSON request body", http.StatusBadRequest)
+		return
+	}
+
+	// Check if at least one key-value pair is provided and value is not empty
+	if len(data) == 0 {
+		http.Error(w, "At least one key-value pair is required", http.StatusBadRequest)
+		return
+	}
+
+	for key, value := range data {
+		if value == "" {
+			http.Error(w, fmt.Sprintf("Value for key '%s' is required", key), http.StatusBadRequest)
+			return
+		}
+
+		wal.Append(fmt.Sprintf("SET %s %s", key, value))
+		memTable.Set(key, value)
+
+		if shouldFlushMemTable() {
+			sstManager.FlushMemTableToSST(memTable)
+			memTable.Clear()
+			wal.UpdateWatermark()
+		}
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Key-value pair set successfully"))
+}
+
+func handleDelete(w http.ResponseWriter, r *http.Request) {
+	key := r.URL.Query().Get("key")
+	if key == "" {
+		http.Error(w, "Key is required", http.StatusBadRequest)
+		return
+	}
+
+	// Check if the key exists in MemTable
+	memTable.RLock()
+	_, op, foundInMemTable := memTable.Get(key)
+	memTable.RUnlock()
+
+	// Check if the key exists in SST
+	_, foundInSST := sstManager.GetFromSST(key)
+
+	// If key is not found in MemTable and not found in SST, return error
+	if !foundInMemTable && !foundInSST {
+		http.Error(w, "Key does not exist", http.StatusNotFound)
+		return
+	}
+
+	// If key is found but already marked as deleted, return key deleted
+	if foundInMemTable && op == OpDelete {
+		http.Error(w, "Key already deleted", http.StatusNotFound)
+		return
+	}
+
+	// Proceed with delete operation
+	wal.Append(fmt.Sprintf("DEL %s", key))
+	memTable.Delete(key)
+
+	if shouldFlushMemTable() {
+		sstManager.FlushMemTableToSST(memTable)
+		memTable.Clear()
+		wal.UpdateWatermark()
+	}
+
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte("Key deleted successfully"))
+}
+
+func shouldFlushMemTable() bool {
+	memTable.RLock()
+	defer memTable.RUnlock()
+	return len(memTable.table) >= MemTableFlushThreshold
 }

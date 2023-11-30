@@ -56,7 +56,7 @@ func (m *MemTable) Delete(key string) {
 func (m *MemTable) ShouldFlush() bool {
 	m.RLock()
 	defer m.RUnlock()
-	return len(m.table) >= MemTableFlushThreshold // Define this threshold
+	return len(m.table) >= MemTableFlushThreshold
 }
 
 // Clear clears the MemTable.
