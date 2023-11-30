@@ -91,6 +91,27 @@ func handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if the key exists in MemTable
+	memTable.RLock()
+	_, op, foundInMemTable := memTable.Get(key)
+	memTable.RUnlock()
+
+	// Check if the key exists in SST
+	_, foundInSST := sstManager.GetFromSST(key)
+
+	// If key is not found in MemTable and not found in SST, return error
+	if !foundInMemTable && !foundInSST {
+		http.Error(w, "Key does not exist", http.StatusNotFound)
+		return
+	}
+
+	// If key is found but already marked as deleted, return key deleted
+	if foundInMemTable && op == OpDelete {
+		http.Error(w, "Key already deleted", http.StatusNotFound)
+		return
+	}
+
+	// Proceed with delete operation
 	wal.Append(fmt.Sprintf("DEL %s", key))
 	memTable.Delete(key)
 
