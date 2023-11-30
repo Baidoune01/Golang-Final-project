@@ -69,7 +69,18 @@ func handleSet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Check if at least one key-value pair is provided and value is not empty
+	if len(data) == 0 {
+		http.Error(w, "At least one key-value pair is required", http.StatusBadRequest)
+		return
+	}
+
 	for key, value := range data {
+		if value == "" {
+			http.Error(w, fmt.Sprintf("Value for key '%s' is required", key), http.StatusBadRequest)
+			return
+		}
+
 		wal.Append(fmt.Sprintf("SET %s %s", key, value))
 		memTable.Set(key, value)
 

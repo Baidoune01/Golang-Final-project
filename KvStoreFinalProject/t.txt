@@ -12,7 +12,7 @@ curl -X POST -H "Content-Type: application/json" -d "{\"do\":\"not\"}" http://lo
 
 
 curl -X POST -H "Content-Type: application/json" -d "{\"c++\":\"oop_modifed\"}" http://localhost:8080/set
-curl -X POST -H "Content-Type: application/json" -d "{\"do\":\"not\"}" http://localhost:8080/set
+curl -X POST -H "Content-Type: application/json" -d "{\"do\":\"\"}" http://localhost:8080/set
 
 
 
